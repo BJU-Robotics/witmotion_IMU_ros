@@ -1,6 +1,6 @@
 witmotion:
   ros__parameters:
-    port: ttyUSB0
+    port: dev/serial/usb-1a86_USB_Serial-if00-port0
     baud_rate: 9600 # baud
     polling_interval: 50 # ms
     restart_service_name: /restart_imu
@@ -33,7 +33,9 @@ witmotion:
       coefficient: 0.00000001 # Linear calibration parameters: coefficient
       addition: 0.0 # and addendum
       covariance:
-        [0.000000187123, 0.0, 0.0, 0.0, 0.000000105373, 0.0, 0.0, 0.0, 0.000000165816]
+        [0.000000187123, 0.0, 0.0, 
+        0.0, 0.000000105373, 0.0, 
+        0.0, 0.0, 0.000000165816]
     barometer_publisher:
       enabled: true
       topic_name: /barometer
@@ -50,7 +52,7 @@ witmotion:
       enabled: true
       topic_name: /orientation
     gps_publisher:
-      enabled: false
+      enabled: true
       navsat_fix_frame_id: world
       navsat_fix_topic_name: /gps
       navsat_altitude_topic_name: /gps_altitude

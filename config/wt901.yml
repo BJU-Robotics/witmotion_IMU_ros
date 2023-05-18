@@ -1,8 +1,8 @@
 witmotion:
   ros__parameters:
-    port: ttyUSB0
-    baud_rate: 115200 # baud
-    polling_interval: 10 # ms
+    port: /dev/ttyUSB0
+    baud_rate: 9600 # baud
+    polling_interval: 50 # ms didn't work at 10, but works at 50!
     restart_service_name: /restart_imu
     imu_publisher:
       topic_name: /imu
@@ -19,7 +19,7 @@ witmotion:
           enabled: true
           covariance: [0.0479, 0.0, 0.0, 0.0, 0.0207, 0.0, 0.0, 0.0, 0.0041]
     temperature_publisher:
-      enabled: true
+      enabled: false
       topic_name: /temperature
       frame_id: base_link
       from_message: magnetometer # acceleration, angular_vel, orientation, magnetometer
@@ -50,7 +50,7 @@ witmotion:
       enabled: true
       topic_name: /orientation
     gps_publisher:
-      enabled: false
+      enabled: true
       navsat_fix_frame_id: world
       navsat_fix_topic_name: /gps
       navsat_altitude_topic_name: /gps_altitude
@@ -58,5 +58,5 @@ witmotion:
       navsat_variance_topic_name: /gps_variance
       ground_speed_topic_name: /gps_ground_speed
     rtc_publisher:
-      enabled: false
+      enabled: true
       topic_name: /witmotion_clock
