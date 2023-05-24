@@ -652,6 +652,8 @@ void ROSWitmotionSensorController::gps_process(
     static sensor_msgs::msg::NavSatFix msg;
     decode_gps(packet, longitude_deg, longitude_min, latitude_deg,
                latitude_min);
+    RCLCPP_INFO(rclcpp::get_logger("ROSWitmotionSensorController"),
+              "Recieved GPS data: %f %f %f %f", latitude_deg, latitude_min, longitude_deg, longitude_min);
     msg.header.frame_id = gps_frame_id;
     msg.header.stamp = rclcpp::Clock().now();
     msg.status.service = sensor_msgs::msg::NavSatStatus::SERVICE_GPS;
