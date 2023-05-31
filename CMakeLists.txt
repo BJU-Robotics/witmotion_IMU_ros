@@ -3,7 +3,6 @@ project(witmotion_ros)
 
 # Add support for C++14
 
-
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
 endif()
@@ -20,11 +19,10 @@ endif()
 add_subdirectory(witmotion-uart-qt)
 
 #set(CMAKE_AUTOMOC ON)
-#qt5_wrap_cpp(MOC_SOURCES include/witmotion_ros.h)
+#qt5_wrap_cpp(MOC_SOURCES include/witmotion_ros/witmotion_ros.h)
 include_directories(include)
-include_directories(/opt/ros/humble/include/tf2_geometry_msgs)
 include_directories(witmotion-uart-qt/include)
-#add_library(witmotion_ros src/witmotion_ros.cpp include/witmotion_ros.h)
+#add_library(witmotion_ros src/witmotion_ros.cpp include/witmotion_ros/witmotion_ros.h)
 
 
 find_package(ament_cmake REQUIRED)
@@ -44,7 +42,7 @@ find_package(lifecycle_msgs REQUIRED)
 
 set(CMAKE_AUTOMOC ON)
 qt5_wrap_cpp(MOC_SOURCES
-    include/witmotion_ros.h
+    include/witmotion_ros/witmotion_ros.h
     )
 
 add_library(witmotion_ros

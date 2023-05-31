@@ -1,4 +1,4 @@
-#include "witmotion_ros.h"
+#include "witmotion_ros/witmotion_ros.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -22,10 +22,11 @@ int main(int argc, char *argv[]) {
     }
   });
 
-  ROSWitmotionSensorController &controller = ROSWitmotionSensorController::Instance();
-  auto node = controller.Start();
+  auto controller = std::make_shared<ROSWitmotionSensorController>();
+  
+  controller->Start();
   rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(node);
+  executor.add_node(controller);
 
   std::thread spinThread([&executor, &app]() { executor.spin(); });
 

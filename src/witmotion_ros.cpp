@@ -1,198 +1,118 @@
-#include "witmotion_ros.h"
+#include <rclcpp/node.hpp>
+#include "witmotion_ros/witmotion_ros.h"
 
-bool ROSWitmotionSensorController::suspended = false;
-rclcpp::Service<std_srvs::srv::Empty>::SharedPtr restart_service;
-
-/* IMU */
-
-rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher;
-std::string ROSWitmotionSensorController::imu_frame_id = "imu";
-bool ROSWitmotionSensorController::imu_enable_accel = false;
-bool ROSWitmotionSensorController::imu_enable_velocities = false;
-bool ROSWitmotionSensorController::imu_enable_orientation = false;
-bool ROSWitmotionSensorController::imu_have_accel = false;
-bool ROSWitmotionSensorController::imu_have_velocities = false;
-bool ROSWitmotionSensorController::imu_have_orientation = false;
-bool ROSWitmotionSensorController::imu_native_orientation = false;
-std::vector<double> ROSWitmotionSensorController::imu_accel_covariance = {
-    -1, 0, 0, 0, 0, 0, 0, 0, 0};
-std::vector<double> ROSWitmotionSensorController::imu_velocity_covariance = {
-    -1, 0, 0, 0, 0, 0, 0, 0, 0};
-std::vector<double> ROSWitmotionSensorController::imu_orientation_covariance = {
-    -1, 0, 0, 0, 0, 0, 0, 0, 0};
-
-/* TEMPERATURE */
-witmotion_packet_id ROSWitmotionSensorController::temp_from = pidAcceleration;
-std::string ROSWitmotionSensorController::temp_frame_id = "imu";
-bool ROSWitmotionSensorController::temp_enable = false;
-float ROSWitmotionSensorController::temp_variance = 0.f;
-float ROSWitmotionSensorController::temp_coeff = 1.f;
-float ROSWitmotionSensorController::temp_addition = 0.f;
-rclcpp::Publisher<sensor_msgs::msg::Temperature>::SharedPtr temp_publisher;
-
-/* MAGNETOMETER */
-std::string ROSWitmotionSensorController::magnetometer_frame_id = "imu";
-bool ROSWitmotionSensorController::magnetometer_enable = false;
-std::vector<double> ROSWitmotionSensorController::magnetometer_covariance = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0};
-rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr
-    magnetometer_publisher;
-float ROSWitmotionSensorController::magnetometer_coeff = 1.f;
-float ROSWitmotionSensorController::magnetometer_addition = 0.f;
-
-/* BAROMETER */
-std::string ROSWitmotionSensorController::barometer_frame_id = "imu";
-bool ROSWitmotionSensorController::barometer_enable = false;
-double ROSWitmotionSensorController::barometer_variance = 0.f;
-double ROSWitmotionSensorController::barometer_coeff = 1.f;
-double ROSWitmotionSensorController::barometer_addition = 0.f;
-rclcpp::Publisher<sensor_msgs::msg::FluidPressure>::SharedPtr
-    barometer_publisher;
-
-/* ALTIMETER */
-bool ROSWitmotionSensorController::altimeter_enable = false;
-double ROSWitmotionSensorController::altimeter_coeff = 1.f;
-double ROSWitmotionSensorController::altimeter_addition = 0.f;
-rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr altimeter_publisher;
-bool ROSWitmotionSensorController::have_altitude = false;
-double ROSWitmotionSensorController::last_altitude = 0.f;
-
-/* ORIENTATION */
-bool ROSWitmotionSensorController::orientation_enable = false;
-rclcpp::Publisher<geometry_msgs::msg::Quaternion>::SharedPtr
-    orientation_publisher;
-
-/* GPS */
-bool ROSWitmotionSensorController::gps_enable = false;
-bool ROSWitmotionSensorController::have_gps = false;
-bool ROSWitmotionSensorController::have_accuracy = false;
-bool ROSWitmotionSensorController::have_ground_speed = false;
-uint32_t ROSWitmotionSensorController::satellites = 0;
-float ROSWitmotionSensorController::gps_altitude = NAN;
-std::vector<double> ROSWitmotionSensorController::gps_covariance = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0};
-std::string ROSWitmotionSensorController::gps_frame_id = "world";
-
-
-rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gps_publisher;
-rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr ground_speed_publisher;
-rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr gps_altitude_publisher;
-rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr accuracy_publisher;
-rclcpp::Publisher<std_msgs::msg::UInt32>::SharedPtr satellites_publisher;
-
-/* REALTIME CLOCK */
-bool ROSWitmotionSensorController::rtc_enable = false;
-rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr rtc_publisher;
-bool ROSWitmotionSensorController::rtc_presync = false;
 
 ROSWitmotionSensorController::ROSWitmotionSensorController()
-    : reader_thread(dynamic_cast<QObject *>(this))
+: rclcpp::Node("witmotion")
+, reader_thread(dynamic_cast<QObject *>(this))
 {
-
   /*Initializing ROS fields*/
-  node = rclcpp::Node::make_shared("witmotion");
-
-
-  /*Initializing ROS fields*/
-  node->declare_parameter("restart_service_name", "restart");
-  _restart_service_name = node->get_parameter("restart_service_name")
+  declare_parameter("restart_service_name", "restart");
+  _restart_service_name = get_parameter("restart_service_name")
                               .get_parameter_value()
                               .get<std::string>();
 
-  restart_service = node->create_service<std_srvs::srv::Empty>(
-      _restart_service_name, &ROSWitmotionSensorController::Restart);
+  restart_service = create_service<std_srvs::srv::Empty>(
+      _restart_service_name, [this] (std_srvs::srv::Empty::Request::SharedPtr request,
+                                      std_srvs::srv::Empty::Response::SharedPtr response) 
+                                      { Restart(request, response); });
 
   /* IMU */
-  node->declare_parameter("imu_publisher.topic_name", "imu");
-  _imu_topic = node->get_parameter("imu_publisher.topic_name")
+  declare_parameter("imu_publisher.topic_name", "imu");
+  _imu_topic = get_parameter("imu_publisher.topic_name")
                    .get_parameter_value()
                    .get<std::string>();
 
-  imu_publisher = node->create_publisher<sensor_msgs::msg::Imu>(_imu_topic, 10);
+  imu_publisher = create_publisher<sensor_msgs::msg::Imu>(_imu_topic, 10);
 
-  node->declare_parameter("imu_publisher.frame_id", "imu");
-  imu_frame_id = node->get_parameter("imu_publisher.frame_id")
+  declare_parameter("imu_publisher.frame_id", "imu");
+  imu_frame_id = get_parameter("imu_publisher.frame_id")
                      .get_parameter_value()
                      .get<std::string>();
 
-  node->declare_parameter("imu_publisher.use_native_orientation", false);
+  declare_parameter("imu_publisher.yaw_correction_angle", 0.0);
+  imu_yaw_correction_angle = get_parameter("imu_publisher.yaw_correction_angle")
+                     .get_parameter_value()
+                     .get<double>();
+
+  declare_parameter("imu_publisher.use_native_orientation", false);
   imu_native_orientation =
-      node->get_parameter("imu_publisher.use_native_orientation")
+      get_parameter("imu_publisher.use_native_orientation")
           .get_parameter_value()
           .get<bool>();
 
-  node->declare_parameter("imu_publisher.measurements.acceleration.enabled", false);
+  declare_parameter("imu_publisher.measurements.acceleration.enabled", false);
   imu_enable_accel =
-      node->get_parameter("imu_publisher.measurements.acceleration.enabled")
+      get_parameter("imu_publisher.measurements.acceleration.enabled")
           .get_parameter_value()
           .get<bool>();
 
   if (imu_enable_accel) {
 
-    node->declare_parameter(
+    declare_parameter(
         "imu_publisher.measurements.acceleration.covariance",
         std::vector<double>({-1, 0, 0, 0, 0, 0, 0, 0, 0}));
     imu_accel_covariance =
-        node->get_parameter(
+        get_parameter(
                 "imu_publisher.measurements.acceleration.covariance")
             .get_parameter_value()
             .get<std::vector<double>>();
   }
 
-  node->declare_parameter("imu_publisher.measurements.angular_velocity.enabled",
+  declare_parameter("imu_publisher.measurements.angular_velocity.enabled",
                           false);
   imu_enable_velocities =
-      node->get_parameter("imu_publisher.measurements.angular_velocity.enabled")
+      get_parameter("imu_publisher.measurements.angular_velocity.enabled")
           .get_parameter_value()
           .get<bool>();
 
   if (imu_enable_velocities) {
-    node->declare_parameter(
+    declare_parameter(
         "imu_publisher.measurements.angular_velocity.covariance",
         std::vector<double>({-1, 0, 0, 0, 0, 0, 0, 0, 0}));
     imu_velocity_covariance =
-        node->get_parameter(
+        get_parameter(
                 "imu_publisher.measurements.angular_velocity.covariance")
             .get_parameter_value()
             .get<std::vector<double>>();
   }
 
-  node->declare_parameter("imu_publisher.measurements.orientation.enabled",
+  declare_parameter("imu_publisher.measurements.orientation.enabled",
                           false);
   imu_enable_orientation =
-      node->get_parameter("imu_publisher.measurements.orientation.enabled")
+      get_parameter("imu_publisher.measurements.orientation.enabled")
           .get_parameter_value()
           .get<bool>();
 
   if (imu_enable_orientation) {
-    node->declare_parameter("imu_publisher.measurements.orientation.covariance",
+    declare_parameter("imu_publisher.measurements.orientation.covariance",
                             std::vector<double>({-1, 0, 0, 0, 0, 0, 0, 0, 0}));
     imu_orientation_covariance =
-        node->get_parameter("imu_publisher.measurements.orientation.covariance")
+        get_parameter("imu_publisher.measurements.orientation.covariance")
             .get_parameter_value()
             .get<std::vector<double>>();
   }
   /* TEMPERATURE */
-  node->declare_parameter("temperature_publisher.enabled", false);
-  temp_enable = node->get_parameter("temperature_publisher.enabled")
+  declare_parameter("temperature_publisher.enabled", false);
+  temp_enable = get_parameter("temperature_publisher.enabled")
                     .get_parameter_value()
                     .get<bool>();
 
   if (temp_enable) {
-    node->declare_parameter("temperature_publisher.topic_name", "temperature");
-    _temp_topic = node->get_parameter("temperature_publisher.topic_name")
+    declare_parameter("temperature_publisher.topic_name", "temperature");
+    _temp_topic = get_parameter("temperature_publisher.topic_name")
                       .get_parameter_value()
                       .get<std::string>();
 
-    node->declare_parameter("temperature_publisher.frame_id", "temp_frame");
-    temp_frame_id = node->get_parameter("temperature_publisher.frame_id")
+    declare_parameter("temperature_publisher.frame_id", "temp_frame");
+    temp_frame_id = get_parameter("temperature_publisher.frame_id")
                         .get_parameter_value()
                         .get<std::string>();
 
     std::string temp_from_str;
-    node->declare_parameter("temperature_publisher.from_message",
+    declare_parameter("temperature_publisher.from_message",
                             "from_message");
-    temp_from_str = node->get_parameter("temperature_publisher.from_message")
+    temp_from_str = get_parameter("temperature_publisher.from_message")
                         .get_parameter_value()
                         .get<std::string>();
 
@@ -213,227 +133,227 @@ ROSWitmotionSensorController::ROSWitmotionSensorController()
                             temp_from_str.c_str());
       temp_from = pidAcceleration;
     }
-    node->declare_parameter("temperature_publisher.variance", 0.f);
-    temp_variance = node->get_parameter("temperature_publisher.variance")
+    declare_parameter("temperature_publisher.variance", 0.f);
+    temp_variance = get_parameter("temperature_publisher.variance")
                         .get_parameter_value()
                         .get<float>();
 
-    node->declare_parameter("temperature_publisher.coefficient", 1.f);
-    temp_coeff = node->get_parameter("temperature_publisher.coefficient")
+    declare_parameter("temperature_publisher.coefficient", 1.f);
+    temp_coeff = get_parameter("temperature_publisher.coefficient")
                      .get_parameter_value()
                      .get<float>();
 
-    node->declare_parameter("temperature_publisher.addition", 0.f);
-    temp_addition = node->get_parameter("temperature_publisher.addition")
+    declare_parameter("temperature_publisher.addition", 0.f);
+    temp_addition = get_parameter("temperature_publisher.addition")
                         .get_parameter_value()
                         .get<float>();
     temp_publisher =
-        node->create_publisher<sensor_msgs::msg::Temperature>(_temp_topic, 1);
+        create_publisher<sensor_msgs::msg::Temperature>(_temp_topic, 1);
   }
   /* MAGNETOMETER */
-  node->declare_parameter("magnetometer_publisher.enabled", false);
-  magnetometer_enable = node->get_parameter("magnetometer_publisher.enabled")
+  declare_parameter("magnetometer_publisher.enabled", false);
+  magnetometer_enable = get_parameter("magnetometer_publisher.enabled")
                             .get_parameter_value()
                             .get<bool>();
   if (magnetometer_enable) {
-    node->declare_parameter("magnetometer_publisher.topic_name", "mag");
+    declare_parameter("magnetometer_publisher.topic_name", "mag");
     _magnetometer_topic =
-        node->get_parameter("magnetometer_publisher.topic_name")
+        get_parameter("magnetometer_publisher.topic_name")
             .get_parameter_value()
             .get<std::string>();
 
-    node->declare_parameter("magnetometer_publisher.frame_id", "mag_frame");
+    declare_parameter("magnetometer_publisher.frame_id", "mag_frame");
     magnetometer_frame_id =
-        node->get_parameter("magnetometer_publisher.frame_id")
+        get_parameter("magnetometer_publisher.frame_id")
             .get_parameter_value()
             .get<std::string>();
 
-    node->declare_parameter("magnetometer_publisher.covariance",
+    declare_parameter("magnetometer_publisher.covariance",
                             std::vector<double>({0, 0, 0, 0, 0, 0, 0, 0, 0}));
     magnetometer_covariance =
-        node->get_parameter("magnetometer_publisher.covariance")
+        get_parameter("magnetometer_publisher.covariance")
             .get_parameter_value()
             .get<std::vector<double>>();
 
-    node->declare_parameter("magnetometer_publisher.coefficient", 1.f);
+    declare_parameter("magnetometer_publisher.coefficient", 1.f);
     magnetometer_coeff =
-        node->get_parameter("magnetometer_publisher.coefficient")
+        get_parameter("magnetometer_publisher.coefficient")
             .get_parameter_value()
             .get<float>();
 
-    node->declare_parameter("magnetometer_publisher.addition", 0.f);
+    declare_parameter("magnetometer_publisher.addition", 0.f);
     magnetometer_addition =
-        node->get_parameter("magnetometer_publisher.addition")
+        get_parameter("magnetometer_publisher.addition")
             .get_parameter_value()
             .get<float>();
 
     magnetometer_publisher =
-        node->create_publisher<sensor_msgs::msg::MagneticField>(
+        create_publisher<sensor_msgs::msg::MagneticField>(
             _magnetometer_topic, 1);
   }
   /* BAROMETER */
-  node->declare_parameter("barometer_publisher.enabled", false);
-  barometer_enable = node->get_parameter("barometer_publisher.enabled")
+  declare_parameter("barometer_publisher.enabled", false);
+  barometer_enable = get_parameter("barometer_publisher.enabled")
                          .get_parameter_value()
                          .get<bool>();
   if (barometer_enable) {
-    node->declare_parameter("barometer_publisher.topic_name", "baro");
-    _barometer_topic = node->get_parameter("barometer_publisher.topic_name")
+    declare_parameter("barometer_publisher.topic_name", "baro");
+    _barometer_topic = get_parameter("barometer_publisher.topic_name")
                            .get_parameter_value()
                            .get<std::string>();
 
-    node->declare_parameter("barometer_publisher.frame_id", "baro_frame");
-    barometer_frame_id = node->get_parameter("barometer_publisher.frame_id")
+    declare_parameter("barometer_publisher.frame_id", "baro_frame");
+    barometer_frame_id = get_parameter("barometer_publisher.frame_id")
                              .get_parameter_value()
                              .get<std::string>();
 
-    node->declare_parameter("barometer_publisher.variance", 1.f);
-    barometer_variance = node->get_parameter("barometer_publisher.variance")
+    declare_parameter("barometer_publisher.variance", 1.f);
+    barometer_variance = get_parameter("barometer_publisher.variance")
                              .get_parameter_value()
                              .get<double>();
 
-    node->declare_parameter("barometer_publisher.coefficient", 1.f);
-    barometer_coeff = node->get_parameter("barometer_publisher.coefficient")
+    declare_parameter("barometer_publisher.coefficient", 1.f);
+    barometer_coeff = get_parameter("barometer_publisher.coefficient")
                           .get_parameter_value()
                           .get<float>();
 
-    node->declare_parameter("barometer_publisher.addition", 0.f);
-    barometer_addition = node->get_parameter("barometer_publisher.addition")
+    declare_parameter("barometer_publisher.addition", 0.f);
+    barometer_addition = get_parameter("barometer_publisher.addition")
                              .get_parameter_value()
                              .get<float>();
 
-    barometer_publisher = node->create_publisher<sensor_msgs::msg::FluidPressure>(_barometer_topic, 1);
+    barometer_publisher = create_publisher<sensor_msgs::msg::FluidPressure>(_barometer_topic, 1);
   }
   /* ALTIMETER */
-  node->declare_parameter("altimeter_publisher.enabled", false);
-  altimeter_enable = node->get_parameter("altimeter_publisher.enabled")
+  declare_parameter("altimeter_publisher.enabled", false);
+  altimeter_enable = get_parameter("altimeter_publisher.enabled")
                          .get_parameter_value()
                          .get<bool>();
   if (barometer_enable) {
-    node->declare_parameter("altimeter_publisher.topic_name", "altimeter");
-    _altimeter_topic = node->get_parameter("altimeter_publisher.topic_name")
+    declare_parameter("altimeter_publisher.topic_name", "altimeter");
+    _altimeter_topic = get_parameter("altimeter_publisher.topic_name")
                            .get_parameter_value()
                            .get<std::string>();
 
-    node->declare_parameter("altimeter_publisher.coefficient", 1.f);
-    altimeter_coeff = node->get_parameter("altimeter_publisher.coefficient")
+    declare_parameter("altimeter_publisher.coefficient", 1.f);
+    altimeter_coeff = get_parameter("altimeter_publisher.coefficient")
                           .get_parameter_value()
                           .get<float>();
 
-    node->declare_parameter("altimeter_publisher.addition", 0.f);
-    altimeter_addition = node->get_parameter("altimeter_publisher.addition")
+    declare_parameter("altimeter_publisher.addition", 0.f);
+    altimeter_addition = get_parameter("altimeter_publisher.addition")
                              .get_parameter_value()
                              .get<float>();
 
     altimeter_publisher =
-        node->create_publisher<std_msgs::msg::Float64>(_altimeter_topic, 1);
+        create_publisher<std_msgs::msg::Float64>(_altimeter_topic, 1);
   }
   /* ORIENTATION */
-  node->declare_parameter("orientation_publisher.enabled", false);
-  orientation_enable = node->get_parameter("orientation_publisher.enabled")
+  declare_parameter("orientation_publisher.enabled", false);
+  orientation_enable = get_parameter("orientation_publisher.enabled")
                            .get_parameter_value()
                            .get<bool>();
 
   if (orientation_enable) {
-    node->declare_parameter("orientation_publisher.topic_name", "orientation");
-    _orientation_topic = node->get_parameter("orientation_publisher.topic_name")
+    declare_parameter("orientation_publisher.topic_name", "orientation");
+    _orientation_topic = get_parameter("orientation_publisher.topic_name")
                              .get_parameter_value()
                              .get<std::string>();
     orientation_publisher =
-        node->create_publisher<geometry_msgs::msg::Quaternion>(
+        create_publisher<geometry_msgs::msg::Quaternion>(
             _orientation_topic, 1);
   }
   /* GPS */
-  node->declare_parameter("gps_publisher.enabled", false);
-  gps_enable = node->get_parameter("gps_publisher.enabled")
+  declare_parameter("gps_publisher.enabled", false);
+  gps_enable = get_parameter("gps_publisher.enabled")
                    .get_parameter_value()
                    .get<bool>();
   if (gps_enable) {
-    node->declare_parameter("gps_publisher.navsat_fix_frame_id", "gps_frame");
-    gps_frame_id = node->get_parameter("gps_publisher.navsat_fix_frame_id")
+    declare_parameter("gps_publisher.navsat_fix_frame_id", "gps_frame");
+    gps_frame_id = get_parameter("gps_publisher.navsat_fix_frame_id")
                        .get_parameter_value()
                        .get<std::string>();
 
-    node->declare_parameter("gps_publisher.navsat_fix_topic_name", "gps");
-    _gps_topic = node->get_parameter("gps_publisher.navsat_fix_topic_name")
+    declare_parameter("gps_publisher.navsat_fix_topic_name", "gps");
+    _gps_topic = get_parameter("gps_publisher.navsat_fix_topic_name")
                      .get_parameter_value()
                      .get<std::string>();
     gps_publisher =
-        node->create_publisher<sensor_msgs::msg::NavSatFix>(_gps_topic, 1);
+        create_publisher<sensor_msgs::msg::NavSatFix>(_gps_topic, 1);
 
-    node->declare_parameter("gps_publisher.ground_speed_topic_name", "gps");
+    declare_parameter("gps_publisher.ground_speed_topic_name", "gps");
     _ground_speed_topic =
-        node->get_parameter("gps_publisher.ground_speed_topic_name")
+        get_parameter("gps_publisher.ground_speed_topic_name")
             .get_parameter_value()
             .get<std::string>();
 
-    ground_speed_publisher = node->create_publisher<geometry_msgs::msg::Twist>(
+    ground_speed_publisher = create_publisher<geometry_msgs::msg::Twist>(
         _ground_speed_topic, 1);
 
 
-    node->declare_parameter("gps_publisher.navsat_variance_topic_name",
+    declare_parameter("gps_publisher.navsat_variance_topic_name",
                             "accuracy");
     _accuracy_topic =
-        node->get_parameter("gps_publisher.navsat_variance_topic_name")
+        get_parameter("gps_publisher.navsat_variance_topic_name")
             .get_parameter_value()
             .get<std::string>();
 
     accuracy_publisher =
-        node->create_publisher<geometry_msgs::msg::Vector3>(_accuracy_topic, 1);
+        create_publisher<geometry_msgs::msg::Vector3>(_accuracy_topic, 1);
 
 
-    node->declare_parameter("gps_publisher.navsat_satellites_topic_name",
+    declare_parameter("gps_publisher.navsat_satellites_topic_name",
                             "satellites");
     _satellites_topic =
-        node->get_parameter("gps_publisher.navsat_satellites_topic_name")
+        get_parameter("gps_publisher.navsat_satellites_topic_name")
             .get_parameter_value()
             .get<std::string>();
 
     satellites_publisher =
-        node->create_publisher<std_msgs::msg::UInt32>(_satellites_topic, 1);
+        create_publisher<std_msgs::msg::UInt32>(_satellites_topic, 1);
 
 
-    node->declare_parameter("gps_publisher.navsat_altitude_topic_name",
+    declare_parameter("gps_publisher.navsat_altitude_topic_name",
                             "gps_altitude");
     _gps_altitude_topic =
-        node->get_parameter("gps_publisher.navsat_altitude_topic_name")
+        get_parameter("gps_publisher.navsat_altitude_topic_name")
             .get_parameter_value()
             .get<std::string>();
 
     gps_altitude_publisher =
-        node->create_publisher<std_msgs::msg::Float32>(_gps_altitude_topic, 1);
+        create_publisher<std_msgs::msg::Float32>(_gps_altitude_topic, 1);
   }
   /* REALTIME CLOCK */
  
-  node->declare_parameter("rtc_publisher.enabled", false);
-  rtc_enable = node->get_parameter("rtc_publisher.enabled")
+  declare_parameter("rtc_publisher.enabled", false);
+  rtc_enable = get_parameter("rtc_publisher.enabled")
                    .get_parameter_value()
                    .get<bool>();
   if (rtc_enable) {
-    node->declare_parameter("rtc_publisher.topic_name", "rtc");
-    _rtc_topic = node->get_parameter("rtc_publisher.topic_name")
+    declare_parameter("rtc_publisher.topic_name", "rtc");
+    _rtc_topic = get_parameter("rtc_publisher.topic_name")
                      .get_parameter_value()
                      .get<std::string>();
  
     rtc_publisher =
-        node->create_publisher<rosgraph_msgs::msg::Clock>(_rtc_topic, 1);
+        create_publisher<rosgraph_msgs::msg::Clock>(_rtc_topic, 1);
    
 
-    node->declare_parameter("rtc_publisher.presync", false);
-    rtc_presync = node->get_parameter("rtc_publisher.presync")
+    declare_parameter("rtc_publisher.presync", false);
+    rtc_presync = get_parameter("rtc_publisher.presync")
                       .get_parameter_value()
                       .get<bool>();
   }
 
 
   /*Initializing QT fields*/
-  node->declare_parameter("port", "ttyUSB0");
+  declare_parameter("port", "ttyUSB0");
   port_name =
-      node->get_parameter("port").get_parameter_value().get<std::string>();
+      get_parameter("port").get_parameter_value().get<std::string>();
 
   int int_rate;
-  node->declare_parameter("baud_rate", 9600);
-  int_rate = node->get_parameter("baud_rate").get_parameter_value().get<int>();
+  declare_parameter("baud_rate", 9600);
+  int_rate = get_parameter("baud_rate").get_parameter_value().get<int>();
 
   port_rate = static_cast<QSerialPort::BaudRate>(int_rate);
   reader = new QBaseSerialWitmotionSensorReader(QString(port_name.c_str()),
@@ -441,8 +361,8 @@ ROSWitmotionSensorController::ROSWitmotionSensorController()
 
   int int_interval;
   
-  node->declare_parameter("polling_interval", 10);
-  int_interval = node->get_parameter("polling_interval")
+  declare_parameter("polling_interval", 10);
+  int_interval = get_parameter("polling_interval")
                        .get_parameter_value()
                        .get<int>();
   interval = static_cast<uint32_t>(int_interval);
@@ -480,7 +400,7 @@ bool ROSWitmotionSensorController::Restart(
         "Cannot restart:  the connection is not suspended" << 4);
      return false;
   }
-  Instance().Start();
+  Start();
   suspended = false;
   return true;
 }
@@ -652,8 +572,6 @@ void ROSWitmotionSensorController::gps_process(
     static sensor_msgs::msg::NavSatFix msg;
     decode_gps(packet, longitude_deg, longitude_min, latitude_deg,
                latitude_min);
-    RCLCPP_INFO(rclcpp::get_logger("ROSWitmotionSensorController"),
-              "Recieved GPS data: %f %f %f %f", latitude_deg, latitude_min, longitude_deg, longitude_min);
     msg.header.frame_id = gps_frame_id;
     msg.header.stamp = rclcpp::Clock().now();
     msg.status.service = sensor_msgs::msg::NavSatStatus::SERVICE_GPS;
@@ -667,6 +585,9 @@ void ROSWitmotionSensorController::gps_process(
             : sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_UNKNOWN;
     for (uint8_t i = 0; i < 9; i++)
       msg.position_covariance[i] = have_accuracy ? gps_covariance[i] : 0.f;
+    
+    RCLCPP_INFO(rclcpp::get_logger("ROSWitmotionSensorController"),
+              "Recieved GPS data: %f %f %f %f", latitude_deg, latitude_min, longitude_deg, longitude_min);
     gps_publisher->publish(msg);
     have_gps = true;
   }
@@ -730,12 +651,7 @@ void ROSWitmotionSensorController::rtc_process(
   }
 }
 
-ROSWitmotionSensorController &ROSWitmotionSensorController::Instance() {
-  static ROSWitmotionSensorController instance;
-  return instance;
-}
-
-rclcpp::Node::SharedPtr ROSWitmotionSensorController::Start() {
+void ROSWitmotionSensorController::Start() {
   RCLCPP_INFO(rclcpp::get_logger("ROSWitmotionSensorController"),
               "Controller started");
   emit RunReader();
@@ -795,8 +711,6 @@ rclcpp::Node::SharedPtr ROSWitmotionSensorController::Start() {
     RCLCPP_INFO(rclcpp::get_logger("ROSWitmotionSensorController"),
                 "RTC synchronized");
   }
-
-  return node;
 }
 
 void ROSWitmotionSensorController::Packet(const witmotion_datapacket &packet) {
