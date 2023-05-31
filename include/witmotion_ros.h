@@ -56,18 +56,16 @@ private:
     ROSWitmotionSensorController(const ROSWitmotionSensorController& root) = delete;
     ROSWitmotionSensorController operator=(const ROSWitmotionSensorController& root) = delete;
 
-   
     /* ROS FIELDS*/
     rclcpp::Node::SharedPtr node;
     //std::shared_ptr<rclcpp::Node> node; 
     static bool Restart(std::shared_ptr<std_srvs::srv::Empty::Request> request, std::shared_ptr<std_srvs::srv::Empty::Response> response);
     std::string _restart_service_name;
-    
- 
 
     /* IMU */
     std::string _imu_topic;
     static std::string imu_frame_id;
+    static double imu_yaw_offset;
     static bool imu_enable_accel;
     static bool imu_have_accel;
     static std::vector<double> imu_accel_covariance;

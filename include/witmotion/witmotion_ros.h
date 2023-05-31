@@ -65,6 +65,7 @@ private:
     /* IMU */
     std::string _imu_topic;
     static std::string imu_frame_id;
+    static double imu_yaw_offset;
     static bool imu_enable_accel;
     static bool imu_have_accel;
     static std::vector<double> imu_accel_covariance;

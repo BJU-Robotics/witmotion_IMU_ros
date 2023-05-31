@@ -7,6 +7,7 @@ rclcpp::Service<std_srvs::srv::Empty>::SharedPtr restart_service;
 
 rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher;
 std::string ROSWitmotionSensorController::imu_frame_id = "imu";
+double ROSWitmotionSensorController::imu_yaw_offset = 0.0;
 bool ROSWitmotionSensorController::imu_enable_accel = false;
 bool ROSWitmotionSensorController::imu_enable_velocities = false;
 bool ROSWitmotionSensorController::imu_enable_orientation = false;
@@ -114,6 +115,11 @@ ROSWitmotionSensorController::ROSWitmotionSensorController()
   imu_frame_id = node->get_parameter("imu_publisher.frame_id")
                      .get_parameter_value()
                      .get<std::string>();
+
+  node->declare_parameter("imu_publisher.imu_yaw_offset", 0.0);
+  imu_yaw_offset = node->get_parameter("imu_publisher.imu_yaw_offset")
+                     .get_parameter_value()
+                     .get<double>();
 
   node->declare_parameter("imu_publisher.use_native_orientation", false);
   imu_native_orientation =
@@ -501,6 +507,8 @@ void ROSWitmotionSensorController::imu_process(
   static float ax, ay, az, t;
   static float wx, wy, wz;
   static float x, y, z, qx, qy, qz, qw;
+  static tf2::Quaternion yaw_offset;
+  yaw_offset.setRPY(0,0,imu_yaw_offset);
   switch (static_cast<witmotion_packet_id>(packet.id_byte)) {
   case pidAcceleration:
     decode_accelerations(packet, ax, ay, az, t);
@@ -546,6 +554,7 @@ void ROSWitmotionSensorController::imu_process(
       tf_orientation.setW(qw);
     } else
       tf_orientation.setRPY(x, y, z);
+    tf_orientation *= yaw_offset;
     tf_orientation = tf_orientation.normalize();
     msg.orientation = tf2::toMsg(tf_orientation);
   }
@@ -557,8 +566,6 @@ void ROSWitmotionSensorController::imu_process(
     imu_have_accel = false;
     imu_have_velocities = false;
     imu_have_orientation = false;
-
-
   }
 }
 
@@ -650,9 +657,12 @@ void ROSWitmotionSensorController::gps_process(
   if (gps_enable) {
     static double latitude_deg, latitude_min, longitude_deg, longitude_min;
     static sensor_msgs::msg::NavSatFix msg;
+
+    RCLCPP_DEBUG(rclcpp::get_logger("ROSWitmotionSensorController"), "recieved lat integer is %d", *packet.datastore.raw_large);
+    RCLCPP_DEBUG(rclcpp::get_logger("ROSWitmotionSensorController"), "recieved long integer is %d", *packet.datastore.raw_large + 1);
     decode_gps(packet, longitude_deg, longitude_min, latitude_deg,
                latitude_min);
-    RCLCPP_INFO(rclcpp::get_logger("ROSWitmotionSensorController"),
+    RCLCPP_DEBUG(rclcpp::get_logger("ROSWitmotionSensorController"),
               "Recieved GPS data: %f %f %f %f", latitude_deg, latitude_min, longitude_deg, longitude_min);
     msg.header.frame_id = gps_frame_id;
     msg.header.stamp = rclcpp::Clock().now();
@@ -833,8 +843,8 @@ void ROSWitmotionSensorController::Packet(const witmotion_datapacket &packet) {
     gps_process(packet);
     break;
   default:
-    RCLCPP_INFO(rclcpp::get_logger("ROSWitmotionSensorController"),
-                "Unknown packet ID 0x%X acquired", packet.id_byte);
+    RCLCPP_INFO_ONCE(rclcpp::get_logger("ROSWitmotionSensorController"),
+      "Unknown packet ID 0x%X acquired. Future unknown packets will be ignored.", packet.id_byte);
   }
 }
 
