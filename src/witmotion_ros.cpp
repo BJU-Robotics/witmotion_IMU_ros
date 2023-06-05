@@ -70,6 +70,7 @@ bool ROSWitmotionSensorController::have_accuracy = false;
 bool ROSWitmotionSensorController::have_ground_speed = false;
 uint32_t ROSWitmotionSensorController::satellites = 0;
 float ROSWitmotionSensorController::gps_altitude = NAN;
+double ROSWitmotionSensorController::gps_covariance_scale = 1.;
 std::vector<double> ROSWitmotionSensorController::gps_covariance = {
     0, 0, 0, 0, 0, 0, 0, 0, 0};
 std::string ROSWitmotionSensorController::gps_frame_id = "world";
@@ -359,6 +360,11 @@ ROSWitmotionSensorController::ROSWitmotionSensorController()
     gps_frame_id = node->get_parameter("gps_publisher.navsat_fix_frame_id")
                        .get_parameter_value()
                        .get<std::string>();
+
+    node->declare_parameter("gps_publisher.gps_covariance_scale", 1.);
+    gps_covariance_scale = node->get_parameter("gps_publisher.gps_covariance_scale")
+                       .get_parameter_value()
+                       .get<double>();
 
     node->declare_parameter("gps_publisher.navsat_fix_topic_name", "gps");
     _gps_topic = node->get_parameter("gps_publisher.navsat_fix_topic_name")
@@ -656,6 +662,7 @@ void ROSWitmotionSensorController::gps_process(
     const witmotion_datapacket &packet) {
   if (gps_enable) {
     static double latitude_deg, latitude_min, longitude_deg, longitude_min;
+    static double old_latitude_deg, old_latitude_min, old_longitude_deg, old_longitude_min;
     static sensor_msgs::msg::NavSatFix msg;
 
     RCLCPP_DEBUG(rclcpp::get_logger("ROSWitmotionSensorController"), "recieved lat integer is %d", *packet.datastore.raw_large);
@@ -664,6 +671,16 @@ void ROSWitmotionSensorController::gps_process(
                latitude_min);
     RCLCPP_DEBUG(rclcpp::get_logger("ROSWitmotionSensorController"),
               "Recieved GPS data: %f %f %f %f", latitude_deg, latitude_min, longitude_deg, longitude_min);
+    // if (latitude_deg == old_latitude_deg && latitude_min == old_latitude_min &&
+    //     longitude_deg == old_longitude_deg && longitude_min == old_longitude_min)
+    // {
+    //   return;
+    // }
+    old_latitude_deg = latitude_deg;
+    old_latitude_min = latitude_min;
+    old_longitude_deg = longitude_deg;
+    old_longitude_min = longitude_min;
+
     msg.header.frame_id = gps_frame_id;
     msg.header.stamp = rclcpp::Clock().now();
     msg.status.service = sensor_msgs::msg::NavSatStatus::SERVICE_GPS;
@@ -676,7 +693,7 @@ void ROSWitmotionSensorController::gps_process(
             ? sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_DIAGONAL_KNOWN
             : sensor_msgs::msg::NavSatFix::COVARIANCE_TYPE_UNKNOWN;
     for (uint8_t i = 0; i < 9; i++)
-      msg.position_covariance[i] = have_accuracy ? gps_covariance[i] : 0.f;
+      msg.position_covariance[i] = (have_accuracy ? gps_covariance[i] : 0.f) * gps_covariance_scale;
     gps_publisher->publish(msg);
     have_gps = true;
   }

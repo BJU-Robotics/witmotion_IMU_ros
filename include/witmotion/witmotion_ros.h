@@ -135,6 +135,7 @@ private:
     static std::vector<double> gps_covariance;
     static std::string gps_frame_id;
     static float gps_altitude;
+    static double gps_covariance_scale;
 
     std::string _gps_topic;
     static rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr  gps_publisher;
